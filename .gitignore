@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# LAMMPS output files
+*.lammpstrj
+*.dump
+thermo*.dat
+restart.*
+log.lammps
+
+# Data files
+*.csv
+*.hdf5
+*.h5
+
+# Jupyter
+.ipynb_checkpoints/
+
+# uv
+uv.lock
