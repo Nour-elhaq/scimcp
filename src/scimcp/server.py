@@ -52,6 +52,30 @@ from .tools.materials.literature import (
     search_materials_science,
     search_by_author,
 )
+from .tools.materials.materials_project import (
+    query_materials_project,
+    get_material_details,
+    search_stable_materials,
+)
+from .tools.dft.vasp_qe import (
+    generate_vasp_incar,
+    generate_vasp_poscar,
+    generate_vasp_kpoints,
+    generate_qe_pw_input,
+)
+from .tools.analysis.phonon import (
+    compute_phonon_dos,
+    compute_thermodynamic_properties,
+    generate_phonon_band_path,
+    estimate_phonon_frequencies,
+)
+from .tools.analysis.visualization import (
+    plot_time_series,
+    plot_histogram,
+    plot_scatter,
+    plot_phonon_dos,
+    plot_thermo_dashboard,
+)
 
 mcp = MCPServer(
     "SciMCP",
@@ -59,8 +83,9 @@ mcp = MCPServer(
         "Scientific computing MCP server for computational materials science. "
         "Provides tools for LAMMPS molecular dynamics simulations, output parsing, "
         "nematic alignment analysis, non-affine displacement computation, "
-        "automated shear-rate sweeps, DFT/CIF analysis, MXene database queries, "
-        "ML property prediction, and arXiv literature search."
+        "automated shear-rate sweeps, DFT/CIF analysis, VASP/QE input generation, "
+        "MXene database queries, ML property prediction, Materials Project queries, "
+        "phonon analysis, trajectory visualization, and arXiv literature search."
     ),
 )
 
@@ -788,6 +813,392 @@ def literature_search_by_author(
     """
     result = search_by_author(author_name, max_results=max_results)
     return json.dumps(result, indent=2)
+
+
+# ── Materials Project ────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def materials_project_query(
+    formula: str = "",
+    material_id: str = "",
+    elements: str = "",
+    band_gap_range: str = "",
+    metallic_only: bool = False,
+    api_key: str = "",
+) -> str:
+    """Query the Materials Project database for crystal structures and properties.
+
+    Uses built-in data when no API key is provided.
+
+    Args:
+        formula: Chemical formula (substring match).
+        material_id: Specific MP material ID (e.g. 'mp-149').
+        elements: Comma-separated element filter (e.g. 'Ti,O').
+        band_gap_range: Comma-separated min,max band gap in eV.
+        metallic_only: If True, return only metallic materials.
+        api_key: Materials Project API key (or set MP_API_KEY env var).
+    """
+    result = query_materials_project(
+        formula=formula, material_id=material_id, elements=elements,
+        band_gap_range=band_gap_range, metallic_only=metallic_only, api_key=api_key,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def materials_project_details(material_id: str, api_key: str = "") -> str:
+    """Get detailed properties for a specific Materials Project material.
+
+    Args:
+        material_id: MP material ID (e.g. 'mp-149').
+        api_key: Materials Project API key.
+    """
+    result = get_material_details(material_id, api_key=api_key)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def materials_project_stable(
+    formula: str = "",
+    max_e_above_hull: float = 0.01,
+    api_key: str = "",
+) -> str:
+    """Search for thermodynamically stable materials near the hull.
+
+    Args:
+        formula: Chemical formula filter.
+        max_e_above_hull: Maximum energy above hull in eV/atom.
+        api_key: Materials Project API key.
+    """
+    result = search_stable_materials(formula=formula, max_e_above_hull=max_e_above_hull, api_key=api_key)
+    return json.dumps(result, indent=2)
+
+
+# ── VASP / Quantum ESPRESSO ──────────────────────────────────────────────
+
+
+@mcp.tool()
+def dft_vasp_incar(
+    encut: float = 520,
+    ediff: float = 1e-6,
+    isif: int = 3,
+    ibrion: int = -1,
+    nsw: int = 0,
+    potim: float = 0.5,
+    ispin: int = 1,
+    lorbit: int = 11,
+    lwave: bool = True,
+    lcharg: bool = True,
+    kspacing: float = 0.5,
+    sigma: float = 0.1,
+    ismear: int = 1,
+    nelm: int = 60,
+    ediffg: float = -0.01,
+    output_file: str = "",
+) -> str:
+    """Generate a VASP INCAR file for electronic structure calculations.
+
+    Args:
+        encut: Plane wave cutoff energy (eV).
+        ediff: Electronic convergence criterion.
+        isif: Ion relaxation mode (2=fixed, 3=relax cell).
+        ibrion: Ionic relaxation algorithm (-1=MD, 0=none, 1=CG, 2=QH).
+        nsw: Number of ionic steps (0=static).
+        potim: Time step for MD (fs).
+        ispin: Spin polarization (1=non-magnetic, 2=magnetic).
+        lorbit: DOS projection (0=no, 11=PAW, 12=LDA+U).
+        lwave: Write WAVECAR.
+        lcharg: Write CHGCAR.
+        kspacing: k-point spacing (Angstrom^-1).
+        sigma: Smearing width (eV).
+        ismear: Smearing method (-5=Tetrahedron, 0=Fermi, 1=Gaussian).
+        nelm: Max electronic steps.
+        ediffg: Force convergence criterion (eV/Angstrom).
+        output_file: If provided, write INCAR to this file.
+    """
+    result = generate_vasp_incar(
+        encut=encut, ediff=ediff, isif=isif, ibrion=ibrion, nsw=nsw,
+        potim=potim, ispin=ispin, lorbit=lorbit, lwave=lwave, lcharg=lcharg,
+        kspacing=kspacing, sigma=sigma, ismear=ismear, nelm=nelm,
+        ediffg=ediffg, output_file=output_file or "",
+    )
+    return json.dumps({"incar_content": result, "output_file": output_file}, indent=2)
+
+
+@mcp.tool()
+def dft_vasp_poscar(
+    elements: str,
+    positions: str,
+    lattice_params: str = "",
+    selective_dynamics: bool = False,
+    comment: str = "SciMCP generated",
+    output_file: str = "",
+) -> str:
+    """Generate a VASP POSCAR file for crystal structure input.
+
+    Args:
+        elements: JSON array of element symbols, e.g., '["Si","Si"]'.
+        positions: JSON array of fractional coordinates, e.g., '[[0,0,0],[0.25,0.25,0.25]]'.
+        lattice_params: JSON object with a, b, c, alpha, beta, gamma.
+        selective_dynamics: Use selective dynamics.
+        comment: Comment line for POSCAR.
+        output_file: If provided, write POSCAR to this file.
+    """
+    import json as _json
+    elems = _json.loads(elements)
+    coords = _json.loads(positions)
+    lattice = _json.loads(lattice_params) if lattice_params else None
+    result = generate_vasp_poscar(
+        elements=elems, positions=coords, lattice_params=lattice,
+        selective_dynamics=selective_dynamics, comment=comment,
+        output_file=output_file or "",
+    )
+    return json.dumps({"poscar_content": result, "output_file": output_file}, indent=2)
+
+
+@mcp.tool()
+def dft_vasp_kpoints(
+    kx: int = 8,
+    ky: int = 8,
+    kz: int = 8,
+    shift: str = "[0,0,0]",
+    output_file: str = "",
+) -> str:
+    """Generate a VASP KPOINTS file for k-point sampling.
+
+    Args:
+        kx: Number of k-points along x.
+        ky: Number of k-points along y.
+        kz: Number of k-points along z.
+        shift: JSON array Monkhorst-Pack shift [sx, sy, sz].
+        output_file: If provided, write KPOINTS to this file.
+    """
+    import json as _json
+    shift_list = _json.loads(shift)
+    result = generate_vasp_kpoints(kx=kx, ky=ky, kz=kz, shift=shift_list, output_file=output_file or "")
+    return json.dumps({"kpoints_content": result, "output_file": output_file}, indent=2)
+
+
+@mcp.tool()
+def dft_qe_pw_input(
+    calculation: str = "scf",
+    pseudo_dir: str = "",
+    prefix: str = "scimcp",
+    atom_positions: str = "[[0,0,0]]",
+    cell_dimensions: str = "[[5,0,0],[0,5,0],[0,0,5]]",
+    ecutwfc: float = 30.0,
+    ecutrho: float = 240.0,
+    k_points: str = "[4,4,4]",
+    conv_thr: float = 1e-6,
+    nstep: int = 100,
+    output_file: str = "",
+) -> str:
+    """Generate a Quantum ESPRESSO pw.x input file.
+
+    Args:
+        calculation: Type (scf, nscf, relax, vc-relax, md).
+        pseudo_dir: Path to pseudopotential directory.
+        prefix: Calculation prefix.
+        atom_positions: JSON array of fractional coordinates.
+        cell_dimensions: JSON array of cell vectors [[ax,ay,az],...].
+        ecutwfc: Plane wave cutoff (Ry).
+        ecutrho: Charge density cutoff (Ry).
+        k_points: JSON array [nx, ny, nz].
+        conv_thr: Convergence threshold.
+        nstep: Number of steps.
+        output_file: If provided, write input to this file.
+    """
+    import json as _json
+    positions = _json.loads(atom_positions)
+    cell = _json.loads(cell_dimensions)
+    kpts = _json.loads(k_points)
+    result = generate_qe_pw_input(
+        calculation=calculation, pseudo_dir=pseudo_dir, prefix=prefix,
+        atom_positions=positions, cell_dimensions=cell, ecutwfc=ecutwfc,
+        ecutrho=ecutrho, k_points=kpts, conv_thr=conv_thr, nstep=nstep,
+        output_file=output_file or "",
+    )
+    return json.dumps({"pw_content": result, "output_file": output_file}, indent=2)
+
+
+# ── Phonon Analysis ──────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def analysis_phonon_dos(
+    frequencies_json: str,
+    sigma: float = 0.5,
+    n_points: int = 200,
+) -> str:
+    """Compute phonon density of states from frequency list.
+
+    Args:
+        frequencies_json: JSON array of phonon frequencies in THz.
+        sigma: Gaussian broadening width (THz).
+        n_points: Number of points in the DOS grid.
+    """
+    result = compute_phonon_dos(frequencies_json, sigma=sigma, n_points=n_points)
+    return result
+
+
+@mcp.tool()
+def analysis_thermodynamic_properties(
+    frequencies_json: str,
+    temperature_K: float = 300.0,
+    n_atoms: int = 1,
+) -> str:
+    """Compute thermodynamic properties from phonon frequencies.
+
+    Args:
+        frequencies_json: JSON array of phonon frequencies in THz.
+        temperature_K: Temperature in Kelvin.
+        n_atoms: Number of atoms in the unit cell.
+    """
+    result = compute_thermodynamic_properties(frequencies_json, temperature_K=temperature_K, n_atoms=n_atoms)
+    return result
+
+
+@mcp.tool()
+def analysis_phonon_band_path(
+    lattice_params: str = '{"a":5.43,"b":5.43,"c":5.43,"alpha":90,"beta":90,"gamma":90}',
+    crystal_system: str = "cubic",
+    n_points: int = 50,
+) -> str:
+    """Generate a high-symmetry k-path for phonon band structure.
+
+    Args:
+        lattice_params: JSON object with a, b, c, alpha, beta, gamma.
+        crystal_system: Crystal system (cubic, hexagonal, tetragonal, orthorhombic).
+        n_points: Number of points between high-symmetry points.
+    """
+    import json as _json
+    lattice = _json.loads(lattice_params)
+    result = generate_phonon_band_path(lattice, crystal_system=crystal_system, n_points=n_points)
+    return result
+
+
+@mcp.tool()
+def analysis_phonon_estimate(
+    composition: str,
+    crystal_system: str = "cubic",
+) -> str:
+    """Estimate phonon frequency range from composition.
+
+    Args:
+        composition: Chemical formula (e.g., 'Si', 'GaAs').
+        crystal_system: Crystal system.
+    """
+    result = estimate_phonon_frequencies(composition, crystal_system=crystal_system)
+    return result
+
+
+# ── Visualization ─────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def viz_time_series(
+    data_json: str,
+    x_label: str = "Step",
+    y_label: str = "Value",
+    title: str = "Time Series",
+    output_file: str = "",
+) -> str:
+    """Plot time series data from LAMMPS thermo output.
+
+    Args:
+        data_json: JSON object with 'x' and 'y' arrays, or dict of y-arrays.
+        x_label: X-axis label.
+        y_label: Y-axis label.
+        title: Plot title.
+        output_file: If provided, save plot as PNG.
+    """
+    result = plot_time_series(data_json, x_label=x_label, y_label=y_label, title=title, output_file=output_file)
+    return result
+
+
+@mcp.tool()
+def viz_histogram(
+    data_json: str,
+    n_bins: int = 50,
+    x_label: str = "Value",
+    y_label: str = "Count",
+    title: str = "Distribution",
+    output_file: str = "",
+) -> str:
+    """Plot a histogram of data values.
+
+    Args:
+        data_json: JSON array of values.
+        n_bins: Number of bins.
+        x_label: X-axis label.
+        y_label: Y-axis label.
+        title: Plot title.
+        output_file: If provided, save plot as PNG.
+    """
+    result = plot_histogram(data_json, n_bins=n_bins, x_label=x_label, y_label=y_label, title=title, output_file=output_file)
+    return result
+
+
+@mcp.tool()
+def viz_scatter(
+    x_json: str,
+    y_json: str,
+    color_json: str = "",
+    x_label: str = "X",
+    y_label: str = "Y",
+    title: str = "Scatter Plot",
+    output_file: str = "",
+) -> str:
+    """Plot a scatter plot, optionally colored by a third variable.
+
+    Args:
+        x_json: JSON array of x values.
+        y_json: JSON array of y values.
+        color_json: Optional JSON array for color mapping.
+        x_label: X-axis label.
+        y_label: Y-axis label.
+        title: Plot title.
+        output_file: If provided, save plot as PNG.
+    """
+    result = plot_scatter(x_json, y_json, color_json=color_json, x_label=x_label, y_label=y_label, title=title, output_file=output_file)
+    return result
+
+
+@mcp.tool()
+def viz_phonon_dos(
+    frequencies_json: str,
+    dos_json: str,
+    title: str = "Phonon Density of States",
+    output_file: str = "",
+) -> str:
+    """Plot phonon density of states.
+
+    Args:
+        frequencies_json: JSON array of frequency values (THz).
+        dos_json: JSON array of DOS values.
+        title: Plot title.
+        output_file: If provided, save plot as PNG.
+    """
+    result = plot_phonon_dos(frequencies_json, dos_json, title=title, output_file=output_file)
+    return result
+
+
+@mcp.tool()
+def viz_thermo_dashboard(
+    thermo_data_json: str,
+    output_file: str = "",
+) -> str:
+    """Generate a 4-panel dashboard from LAMMPS thermo data.
+
+    Panels: Temperature, Energy, Pressure vs Step.
+
+    Args:
+        thermo_data_json: JSON object with columns as keys and arrays as values.
+        output_file: If provided, save plot as PNG.
+    """
+    result = plot_thermo_dashboard(thermo_data_json, output_file=output_file)
+    return result
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────

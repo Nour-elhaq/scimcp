@@ -10,7 +10,7 @@ Give your AI coding agent superpowers for molecular dynamics, DFT, crystallograp
 [![Python](https://img.shields.io/pypi/pyversions/scimcp?color=0076D6&logo=python&logoColor=white)](https://pypi.org/project/scimcp/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-00db00.svg)](https://opensource.org/licenses/MIT)
 [![MCP](https://img.shields.io/badge/MCP-2.0-FF6B35.svg)](https://modelcontextprotocol.io)
-[![Tests](https://img.shields.io/badge/tests-141%20passed-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-211%20passed-brightgreen)](#testing)
 
 **Works with** [Claude Desktop](https://claude.ai/download) · [Claude Code](https://docs.anthropic.com/en/docs/claude-code) · [Cursor](https://cursor.sh) · [Windsurf](https://codeium.com/windsurf) · Any MCP client
 
@@ -26,7 +26,7 @@ uvx scimcp    # Run instantly, no install needed
 
 ## What is SciMCP?
 
-SciMCP is an [MCP server](https://modelcontextprotocol.io) that connects AI assistants to computational materials science workflows. It provides **29 tools** across 6 categories: LAMMPS molecular dynamics, DFT/CIF analysis, MXene materials discovery, ML property prediction, and arXiv literature search.
+SciMCP is an [MCP server](https://modelcontextprotocol.io) that connects AI assistants to computational materials science workflows. It provides **45 tools** across 9 categories: LAMMPS molecular dynamics, DFT/CIF analysis, VASP/QE input generation, MXene materials discovery, ML property prediction, Materials Project queries, phonon analysis, trajectory visualization, and arXiv literature search.
 
 **No more copy-pasting LAMMPS scripts.** Just tell Claude what you need.
 
@@ -107,15 +107,23 @@ Add to your MCP config:
 
 > Parse this CIF file and tell me the space group and lattice parameters
 
+> Generate a VASP INCAR for a relaxation calculation
+
 > What MXenes are metallic with high conductivity?
 
 > Predict the band gap of GaAs
 
 > Find recent arXiv papers on MXene battery applications
 
+> Search Materials Project for stable oxides
+
+> Compute phonon DOS from these frequencies
+
+> Plot the thermo dashboard for this simulation
+
 ---
 
-## 29 Tools — 6 Categories
+## 45 Tools — 9 Categories
 
 ### LAMMPS Input Generation (2 tools)
 
@@ -162,6 +170,15 @@ Add to your MCP config:
 | `dft_generate_cif` | Generate CIF files from crystallographic parameters (space group, lattice, atom types, fractional coordinates). |
 | `dft_cif_summary` | Quick summary of a CIF file: formula, space group, lattice, element composition. |
 
+### VASP / Quantum ESPRESSO (5 tools)
+
+| Tool | What it does |
+|------|-------------|
+| `dft_vasp_incar` | Generate VASP INCAR files with configurable encut, k-spacing, smearing, spin polarization, and relaxation settings. |
+| `dft_vasp_poscar` | Generate VASP POSCAR files from element lists, fractional coordinates, and lattice parameters. Supports selective dynamics. |
+| `dft_vasp_kpoints` | Generate VASP KPOINTS files with Monkhorst-Pack grids and custom shifts. |
+| `dft_qe_pw_input` | Generate Quantum ESPRESSO pw.x input files for SCF, relaxation, and variable-cell calculations. |
+
 ### MXene Database (5 tools)
 
 | Tool | What it does |
@@ -182,6 +199,33 @@ Add to your MCP config:
 | `materials_predict_all` | Run all prediction models at once. |
 | `materials_element_info` | Get elemental properties (electronegativity, radius, mass, density, melting point). |
 | `materials_composition_features` | Compute ML feature vector (weighted avg properties, EN difference, mixing entropy). |
+
+### Materials Project (3 tools)
+
+| Tool | What it does |
+|------|-------------|
+| `materials_project_query` | Query Materials Project for crystal structures and properties. Uses built-in data when no API key. |
+| `materials_project_details` | Get detailed properties for a specific MP material (mp-id). |
+| `materials_project_stable` | Search for thermodynamically stable materials near the hull. |
+
+### Phonon Analysis (4 tools)
+
+| Tool | What it does |
+|------|-------------|
+| `analysis_phonon_dos` | Compute phonon density of states from frequency list with Gaussian broadening. |
+| `analysis_thermodynamic_properties` | Compute ZPE, Helmholtz free energy, entropy, and heat capacity from phonon frequencies. |
+| `analysis_phonon_band_path` | Generate high-symmetry k-path for phonon band structures (cubic, hexagonal, tetragonal, orthorhombic). |
+| `analysis_phonon_estimate` | Estimate phonon frequency range from composition using mass-force constant model. |
+
+### Visualization (5 tools)
+
+| Tool | What it does |
+|------|-------------|
+| `viz_time_series` | Plot time series data from LAMMPS thermo output. |
+| `viz_histogram` | Plot histograms with statistics (mean, std, median). |
+| `viz_scatter` | Scatter plots, optionally colored by a third variable (e.g., D²min). |
+| `viz_phonon_dos` | Plot phonon density of states with zero-frequency line. |
+| `viz_thermo_dashboard` | Generate 4-panel dashboard (Temperature, Energy, Pressure vs Step). |
 
 ### Literature Search (3 tools)
 
@@ -259,7 +303,7 @@ STEP 8: Viscosity Estimation
 ```
 scimcp/
 ├── src/scimcp/
-│   ├── server.py                  # MCP server entry point (29 tools, 7 prompts)
+│   ├── server.py                  # MCP server entry point (45 tools, 7 prompts)
 │   └── tools/
 │       ├── lammps/
 │       │   ├── generator.py       # LAMMPS input generation + workflows
@@ -269,12 +313,17 @@ scimcp/
 │       │   ├── shear.py           # Shear-rate sweep + viscosity fitting
 │       │   └── templates/         # Reference LAMMPS templates
 │       ├── dft/
-│       │   └── cif.py             # CIF parsing, generation, ASE conversion
-│       └── materials/
-│           ├── mxene.py           # MXene database (10+ entries)
-│           ├── prediction.py      # ML property prediction (band gap, density, Tm)
-│           └── literature.py      # arXiv literature search
-├── tests/                         # 141 tests (unit + integration)
+│       │   ├── cif.py             # CIF parsing, generation, ASE conversion
+│       │   └── vasp_qe.py         # VASP INCAR/POSCAR/KPOINTS + QE pw.x input
+│       ├── materials/
+│       │   ├── mxene.py           # MXene database (10+ entries)
+│       │   ├── prediction.py      # ML property prediction (band gap, density, Tm)
+│       │   ├── literature.py      # arXiv literature search
+│       │   └── materials_project.py  # Materials Project API + built-in data
+│       └── analysis/
+│           ├── phonon.py          # Phonon DOS, thermodynamics, band paths
+│           └── visualization.py   # Time series, histograms, scatter, dashboards
+├── tests/                         # 211 tests (unit + integration)
 ├── examples/                      # Demo scripts
 ├── pyproject.toml
 └── README.md
@@ -294,14 +343,14 @@ pytest -v
 # Run specific test module
 pytest tests/test_nematic.py -v
 
-# Run Phase 2 tests only
-pytest tests/test_cif.py tests/test_mxene.py tests/test_prediction.py -v
+# Run Phase 3 tests only
+pytest tests/test_vasp_qe.py tests/test_phonon.py tests/test_visualization.py tests/test_materials_project.py -v
 
 # Run integration tests (excludes network-dependent literature tests)
 pytest tests/test_phase2_integration.py -v -k "not literature"
 ```
 
-**141 tests** covering all tools: LAMMPS generation/parsing/analysis, CIF handling, MXene queries, ML prediction, and MCP server integration.
+**211 tests** covering all tools: LAMMPS generation/parsing/analysis, CIF handling, VASP/QE input, MXene queries, ML prediction, Materials Project, phonon analysis, visualization, and MCP server integration.
 
 ---
 
@@ -312,10 +361,10 @@ pytest tests/test_phase2_integration.py -v -k "not literature"
 - [x] ML-accelerated property prediction
 - [x] ASE (Atomic Simulation Environment) integration
 - [x] arXiv literature search
-- [ ] Materials Project API integration
-- [ ] Trajectory visualization tools
-- [ ] VASP/QE input generation
-- [ ] Phonon band structure tools
+- [x] Materials Project API integration
+- [x] Trajectory visualization tools
+- [x] VASP/QE input generation
+- [x] Phonon band structure tools
 
 ---
 
