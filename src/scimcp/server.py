@@ -31,6 +31,27 @@ from .tools.lammps.shear import (
     write_sweep_scripts,
     estimate_viscosity,
 )
+from .tools.dft.cif import parse_cif, generate_cif, get_cif_summary, cif_to_ase
+from .tools.materials.mxene import (
+    query_mxene,
+    get_mxene_list,
+    get_mxene_properties,
+    compare_mxenes,
+    search_mxene_by_property,
+)
+from .tools.materials.prediction import (
+    predict_band_gap,
+    predict_density,
+    predict_melting_point,
+    get_element_info,
+    predict_all,
+    compute_composition_features,
+)
+from .tools.materials.literature import (
+    search_arxiv,
+    search_materials_science,
+    search_by_author,
+)
 
 mcp = MCPServer(
     "SciMCP",
@@ -38,7 +59,8 @@ mcp = MCPServer(
         "Scientific computing MCP server for computational materials science. "
         "Provides tools for LAMMPS molecular dynamics simulations, output parsing, "
         "nematic alignment analysis, non-affine displacement computation, "
-        "and automated shear-rate sweeps."
+        "automated shear-rate sweeps, DFT/CIF analysis, MXene database queries, "
+        "ML property prediction, and arXiv literature search."
     ),
 )
 
@@ -483,6 +505,291 @@ def lammps_estimate_viscosity(
     return json.dumps(result, indent=2)
 
 
+# ── DFT / CIF Analysis ────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def dft_parse_cif(cif_content: str) -> str:
+    """Parse a CIF (Crystallographic Information File) and extract structure data.
+
+    Returns space group, lattice parameters, atomic positions, and metadata.
+
+    Args:
+        cif_content: Full CIF file content as a string.
+    """
+    from .tools.dft.cif import _parse_cif_text
+    result = _parse_cif_text(cif_content)
+    if "error" in result:
+        return json.dumps(result, indent=2)
+    return json.dumps({
+        "space_group": result.get("symmetry", {}),
+        "lattice": result.get("lattice", {}),
+        "n_atoms": len(result.get("atoms", [])),
+        "formula": "".join(
+            f"{a['element']}" for a in result.get("atoms", [])[:4]
+        ),
+        "atom_sites": result.get("atoms", [])[:10],
+        "metadata_keys": list(result.get("metadata", {}).keys()),
+    }, indent=2)
+
+
+@mcp.tool()
+def dft_generate_cif(
+    space_group: int = 225,
+    lattice_params: str = '{"a": 5.43, "b": 5.43, "c": 5.43, "alpha": 90, "beta": 90, "gamma": 90}',
+    atom_types: str = '["Si"]',
+    positions: str = '[[0.0, 0.0, 0.0], [0.25, 0.25, 0.25]]',
+    formula: str = "",
+    output_file: str = "",
+) -> str:
+    """Generate a CIF file from crystallographic parameters.
+
+    Args:
+        space_group: International space group number (1-230).
+        lattice_params: JSON object with a, b, c, alpha, beta, gamma.
+        atom_types: JSON array of element symbols.
+        positions: JSON array of fractional coordinates [x, y, z].
+        formula: Chemical formula (optional, auto-generated if empty).
+        output_file: Optional file path to write the CIF.
+    """
+    import json as _json
+    lattice = _json.loads(lattice_params)
+    atoms = _json.loads(atom_types)
+    coords = _json.loads(positions)
+    result = generate_cif(
+        elements=atoms,
+        positions=coords,
+        lattice_params=lattice,
+        space_group=str(space_group),
+        label=formula or "generated",
+        output_file=output_file or "",
+    )
+    return json.dumps({"cif_content": result, "formula": formula}, indent=2)
+
+
+@mcp.tool()
+def dft_cif_summary(cif_content: str) -> str:
+    """Get a quick summary of a CIF file: formula, space group, lattice.
+
+    Args:
+        cif_content: Full CIF file content as a string.
+    """
+    from .tools.dft.cif import _parse_cif_text
+    from collections import Counter
+    data = _parse_cif_text(cif_content)
+    elements = [a["element"] for a in data.get("atoms", [])]
+    composition = dict(Counter(elements))
+    return json.dumps({
+        "lattice": data.get("lattice", {}),
+        "n_atoms": len(data.get("atoms", [])),
+        "elements": list(set(elements)),
+        "composition": composition,
+        "formula": "".join(f"{e}{c}" if c > 1 else e for e, c in composition.items()),
+        "symmetry": data.get("symmetry", {}),
+    }, indent=2)
+
+
+# ── MXene Database ────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def materials_mxene_list() -> str:
+    """List all MXenes in the built-in database with key properties."""
+    mxenes = get_mxene_list()
+    return json.dumps(mxenes, indent=2)
+
+
+@mcp.tool()
+def materials_mxene_query(
+    formula: str = "",
+    m_element: str = "",
+    x_element: str = "",
+    termination: str = "",
+    metallic_only: bool = False,
+) -> str:
+    """Query MXene database by formula, elements, termination, or metallic character.
+
+    Returns matching MXene entries with all their properties.
+
+    Args:
+        formula: Filter by chemical formula (substring match).
+        m_element: Transition metal element (e.g., 'Ti', 'V', 'Nb').
+        x_element: Light element (e.g., 'C', 'N').
+        termination: Surface termination (e.g., 'O', 'F', 'OH').
+        metallic_only: If True, return only metallic MXenes.
+    """
+    result = query_mxene(
+        formula=formula,
+        M_element=m_element,
+        X_element=x_element,
+        termination=termination,
+        metallic_only=metallic_only,
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def materials_mxene_properties(formula: str) -> str:
+    """Get detailed properties for a specific MXene by formula.
+
+    Args:
+        formula: MXene formula (e.g., 'Ti3C2', 'Ti2C', 'V2C').
+    """
+    result = get_mxene_properties(formula)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def materials_mxene_compare(formulas: str) -> str:
+    """Compare properties of multiple MXenes side by side.
+
+    Args:
+        formulas: JSON array of MXene formulas, e.g., '["Ti3C2", "V2C", "Nb2C"]'.
+    """
+    import json as _json
+    formula_list = _json.loads(formulas)
+    result = compare_mxenes(formula_list)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def materials_mxene_search(
+    property_name: str,
+    min_value: float,
+    max_value: float,
+) -> str:
+    """Search MXenes within a range for a specific property.
+
+    Args:
+        property_name: Property to search (conductivity, band_gap, mass, density, etc.).
+        min_value: Minimum value.
+        max_value: Maximum value.
+    """
+    result = search_mxene_by_property(property_name, min_value, max_value)
+    return json.dumps(result, indent=2)
+
+
+# ── ML Property Prediction ────────────────────────────────────────────────
+
+
+@mcp.tool()
+def materials_predict_band_gap(composition: str) -> str:
+    """Predict band gap for a material composition using ML.
+
+    Args:
+        composition: Chemical formula (e.g., 'GaAs', 'Si', 'InP').
+    """
+    result = predict_band_gap(composition)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def materials_predict_density(composition: str) -> str:
+    """Predict density for a material composition using ML.
+
+    Args:
+        composition: Chemical formula (e.g., 'Si', 'GaAs', 'Al2O3').
+    """
+    result = predict_density(composition)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def materials_predict_melting_point(composition: str) -> str:
+    """Predict melting point for a material composition using ML.
+
+    Args:
+        composition: Chemical formula (e.g., 'Si', 'Fe', 'Cu').
+    """
+    result = predict_melting_point(composition)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def materials_element_info(element: str) -> str:
+    """Get element properties useful for ML feature computation.
+
+    Args:
+        element: Element symbol (e.g., 'Si', 'Ga', 'As').
+    """
+    result = get_element_info(element)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def materials_predict_all(composition: str) -> str:
+    """Predict all available properties (band gap, density, melting point) for a composition.
+
+    Args:
+        composition: Chemical formula (e.g., 'GaAs', 'Si', 'InP').
+    """
+    result = predict_all(composition)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def materials_composition_features(composition: str) -> str:
+    """Compute ML feature vector for a composition (elemental properties, statistics).
+
+    Args:
+        composition: Chemical formula (e.g., 'GaAs').
+    """
+    result = compute_composition_features(composition)
+    return json.dumps(result, indent=2)
+
+
+# ── Literature Search ──────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def literature_search_arxiv(
+    query: str,
+    max_results: int = 5,
+    sort_by: str = "relevance",
+) -> str:
+    """Search arXiv for materials science papers.
+
+    Args:
+        query: Search query (e.g., 'MXene electronic structure', 'LAMMPS shear simulation').
+        max_results: Maximum number of results (1-20).
+        sort_by: Sort by 'relevance', 'lastUpdatedDate', or 'submittedDate'.
+    """
+    result = search_arxiv(query, max_results=max_results, sort_by=sort_by)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def literature_search_materials(
+    topic: str,
+    max_results: int = 5,
+) -> str:
+    """Search arXiv for materials science papers with domain-specific queries.
+
+    Adds 'materials science' context and common abbreviations to improve results.
+
+    Args:
+        topic: Materials science topic (e.g., 'MXene', 'perovskite solar cells', 'battery electrolyte').
+        max_results: Maximum number of results (1-20).
+    """
+    result = search_materials_science(topic, max_results=max_results)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def literature_search_by_author(
+    author_name: str,
+    max_results: int = 5,
+) -> str:
+    """Search arXiv for papers by a specific author.
+
+    Args:
+        author_name: Author name (e.g., 'John Smith').
+        max_results: Maximum number of results (1-20).
+    """
+    result = search_by_author(author_name, max_results=max_results)
+    return json.dumps(result, indent=2)
+
+
 # ── Prompts ───────────────────────────────────────────────────────────────
 
 
@@ -510,6 +817,57 @@ def lammps_analysis_workflow() -> str:
 4. For nematic systems: `lammps_nematic_order` — compute alignment parameter S
 5. For shear/deformation: `lammps_d2min` — identify non-affine/plastic events
 6. For rheology: `lammps_shear_sweep` + `lammps_estimate_viscosity` — viscosity vs shear rate"""
+
+
+@mcp.prompt()
+def dft_workflow() -> str:
+    """Step-by-step guide for DFT structure analysis with CIF files."""
+    return """Guide the user through DFT structure analysis:
+
+1. Parse existing CIF: `dft_parse_cif` — extract space group, lattice, positions
+2. Get quick summary: `dft_cif_summary` — formula, space group, lattice overview
+3. Generate new CIF: `dft_generate_cif` — create CIF from crystallographic parameters
+4. Export to ASE: use the underlying `cif_to_ase` function for VASP/QE input
+5. Use `materials_predict_band_gap` to estimate electronic properties"""
+
+
+@mcp.prompt()
+def mxene_discovery_workflow() -> str:
+    """Step-by-step guide for MXene materials discovery."""
+    return """Guide the user through MXene discovery:
+
+1. List all MXenes: `materials_mxene_list` — see available MXene compositions
+2. Query by properties: `materials_mxene_query` — filter by conductivity, band gap, mass
+3. Compare MXenes: `materials_mxene_compare` — side-by-side property comparison
+4. Search by range: `materials_mxene_search` — find MXenes within property ranges
+5. Get details: `materials_mxene_properties` — full property data for a specific MXene
+6. Predict properties: `materials_predict_band_gap` — ML prediction for custom compositions"""
+
+
+@mcp.prompt()
+def ml_prediction_workflow() -> str:
+    """Step-by-step guide for ML property prediction."""
+    return """Guide the user through ML property prediction:
+
+1. Get element info: `materials_element_info` — elemental properties and features
+2. Compute features: `materials_composition_features` — ML feature vector for a composition
+3. Predict band gap: `materials_predict_band_gap` — electronic band gap estimate
+4. Predict density: `materials_predict_density` — mass density estimate
+5. Predict melting point: `materials_predict_melting_point` — thermal property estimate
+6. Predict all: `materials_predict_all` — all properties at once"""
+
+
+@mcp.prompt()
+def literature_review_workflow() -> str:
+    """Step-by-step guide for literature search and review."""
+    return """Guide the user through literature search:
+
+1. Topic search: `literature_search_arxiv` — general arXiv search
+2. Materials-specific: `literature_search_materials` — optimized for materials science
+3. Author search: `literature_search_by_author` — find papers by specific authors
+4. Refine queries: combine keywords like 'MXene', 'DFT', 'LAMMPS', 'perovskite'
+5. Check dates: sort by 'submittedDate' for latest work
+6. Export citations: results include arXiv IDs for easy citation"""
 
 
 # ── Main ──────────────────────────────────────────────────────────────────
