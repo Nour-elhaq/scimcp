@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+title: "SciMCP: A Model Context Protocol Framework for Reproducible Computational Materials-Science Workflows"
+message: "Please cite this software and its associated publication."
+type: software
+version: 0.3.0
+date-released: "2026-08-01"
+authors:
+  - family-names: "El Haq"
+    given-names: "Nour"
+    alias: "Nour-elhaq"
+repository-code: "https://github.com/Nour-elhaq/scimcp"
+license: "MIT"
+keywords:
+  - "Model Context Protocol"
+  - "computational materials science"
+  - "MCP server"
+  - "LAMMPS"
+  - "VASP"
+  - "phonon analysis"
+  - "machine learning"
+  - "open-source software"
